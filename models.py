@@ -1,11 +1,8 @@
-import  tensorflow as tf
-from    tensorflow import keras
-from    layers import *
-from    metrics import *
-from    config import args 
-
-
-
+import tensorflow as tf
+from tensorflow import keras
+from GCN_TF2.layers import *
+from GCN_TF2.metrics import *
+from GCN_TF2.config import args
 
 
 class MLP(keras.Model):
@@ -60,7 +57,9 @@ class GCN(keras.Model):
     def __init__(self, input_dim, output_dim, num_features_nonzero, **kwargs):
         super(GCN, self).__init__(**kwargs)
 
-        self.input_dim = input_dim # 1433
+        self.num_samples = args.num_samples
+        self.dist = None
+        self.input_dim = input_dim  # 1433
         self.output_dim = output_dim
 
         print('input dim:', input_dim)
@@ -68,23 +67,20 @@ class GCN(keras.Model):
         print('num_features_nonzero:', num_features_nonzero)
 
         self.layers_ = []
-        self.layers_.append(GraphConvolution(input_dim=self.input_dim, # 1433
-                                            output_dim=args.hidden1, # 16
-                                            num_features_nonzero=num_features_nonzero,
-                                            activation=tf.nn.relu,
-                                            dropout=args.dropout,
-                                            is_sparse_inputs=True))
+        self.layers_.append(GraphConvolution(input_dim=self.input_dim,  # 1433
+                                             output_dim=args.hidden1,  # 16
+                                             num_features_nonzero=num_features_nonzero,
+                                             activation=tf.nn.relu,
+                                             dropout=args.dropout,
+                                             sampling=args.sampling,
+                                             is_sparse_inputs=True))
 
-
-
-
-
-        self.layers_.append(GraphConvolution(input_dim=args.hidden1, # 16
-                                            output_dim=self.output_dim, # 7
-                                            num_features_nonzero=num_features_nonzero,
-                                            activation=lambda x: x,
-                                            dropout=args.dropout))
-
+        self.layers_.append(GraphConvolution(input_dim=args.hidden1,  # 16
+                                             output_dim=self.output_dim,  # 7
+                                             num_features_nonzero=num_features_nonzero,
+                                             sampling=False,
+                                             activation=lambda x: x,
+                                             dropout=args.dropout))
 
         for p in self.trainable_variables:
             print(p.name, p.shape)
@@ -97,11 +93,25 @@ class GCN(keras.Model):
         :return:
         """
         x, label, mask, support = inputs
+        if self.dist is None:
+            self.dist = calc_sample_dist(support[0])
 
+        x = tf.sparse.reorder(x)
+        if args.sampling:
+            samp = sample_from_vec_distribution(args.num_samples, self.dist)
+            x = tf.gather(tf.sparse.to_dense(tf.sparse.reorder(x)), samp)
+            # TODO: Add sampling function when we have it
+            x = tf.sparse.reorder(tf.sparse.from_dense(x))
+        else:
+            samp = None
         outputs = [x]
 
-        for layer in self.layers:
-            hidden = layer((outputs[-1], support), training)
+        for idx, layer in enumerate(self.layers):
+            if idx == 0:
+                hidden = layer((outputs[-1], support), in_sample=samp,
+                               training=training, dist=self.dist)
+            else:
+                hidden = layer((outputs[-1], support), training=training)
             outputs.append(hidden)
         output = outputs[-1]
 
@@ -116,8 +126,6 @@ class GCN(keras.Model):
         acc = masked_accuracy(output, label, mask)
 
         return loss, acc
-
-
 
     def predict(self):
         return tf.nn.softmax(self.outputs)

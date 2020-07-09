@@ -1,4 +1,4 @@
-import  argparse
+import argparse
 
 args = argparse.ArgumentParser()
 args.add_argument('--dataset', default='cora')
@@ -10,7 +10,8 @@ args.add_argument('--dropout', default=0.5)
 args.add_argument('--weight_decay', default=5e-4)
 args.add_argument('--early_stopping', default=10)
 args.add_argument('--max_degree', default=3)
-
+args.add_argument('--sampling', default=True)
+args.add_argument('--num_samples', default=1000)
 
 args = args.parse_args()
 print(args)
